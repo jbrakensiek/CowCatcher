@@ -1,7 +1,28 @@
-#pragma once
+#ifndef MMCLIENT_H
+#define MMCLIENT_H
 
-#define MAXPLAYERS 16
-#define MAXCOWS 100
+#define BOARDSIZE 30
+#define MAXUNITS 30
+
+extern double P;
+extern unsigned int T;
+
+struct coord_t
+{
+	unsigned row;
+	unsigned col;
+};
+
+struct coord_t locFlowers;
+struct coord_t locTeleporter;
+struct coord_t locCloak;
+struct coord_t locDecoy;
+
+struct player_unit
+{
+	unsigned int id;
+	unsigned int row, col;
+};
 
 // player information
 struct player_data
@@ -9,16 +30,14 @@ struct player_data
 	unsigned int id;
 
 	// information about the player
-	unsigned int milk;
-	int loc;
+	unsigned int count;
+	struct player_unit units[MAXUNITS];
 };
 
 // my bot's data
 extern struct player_data SELF;
 
-extern unsigned int NUMCOWS, NUMROUNDS;
-extern unsigned int *MILKVALUES;
-
 // file descriptors
 extern int _fdout, _fdin;
 
+#endif

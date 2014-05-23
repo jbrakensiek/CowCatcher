@@ -19,26 +19,22 @@ extern const char* BOT_NAME;
 
 extern int client_setup(int* /*argc*/, char*** /*argv*/);
 
-extern void game_setup(const struct player_data* /*players*/, 
-	unsigned int /*player count*/);
+extern void game_setup(const struct player_data* /*players*/);
 
-extern int player_turn(unsigned int /*roundnum*/, 
-	const struct player_data* /*players*/, unsigned int /*player count*/);
+extern void turn_start(unsigned int /*roundnum*/, const struct player_data* /*players*/);
+
+extern void player_turn(struct player_unit* /*unit*/, const struct player_data* /*players*/);
 
 extern void game_end();
 
 // ########################################################
 
-unsigned int NUMPLAYERS = 0;
+double P = 1.0;
+unsigned int T = 100;
 
-struct player_data players[MAXPLAYERS];
+struct player_data players[2];
 
 struct player_data SELF;
-
-unsigned int NUMCOWS, NUMROUNDS;
-
-unsigned int _MILKVALUES[MAXCOWS];
-unsigned int *MILKVALUES = _MILKVALUES;
 
 int _fdout = STDOUT_FILENO, _fdin = STDIN_FILENO;
 
@@ -91,32 +87,38 @@ int main(int argc, char **argv)
 		sscanf(msg, "%s", tag);
 		
 		if (!strcmp(tag, "READY")) break;
-		else if (!strcmp(tag, "PLAYERS"))
+		else if (!strcmp(tag, "P"))
+			sscanf(msg, "%*s %lf", &P);
+		else if (!strcmp(tag, "T"))
+			sscanf(msg, "%*s %d", &T);
+		else if (!strcmp(tag, "POS"))
 		{
-			sscanf(msg, "%*s %u", &NUMPLAYERS);
-			for (i = 0; i < NUMPLAYERS; ++i)
+			sscanf(msg, "%*s %d", &i);
+			switch(i)
 			{
-				players[i].loc = -1;
-				players[i].milk = 0;
-				players[i].id = i;
+				case 1: sscanf(msg, "%*s %*d %d %d", &locCloak.row, &locCloak.col); break;
+				case 2: sscanf(msg, "%*s %*d %d %d", &locDecoy.row, &locDecoy.col); break;
+				case 3: sscanf(msg, "%*s %*d %d %d", &locFlowers.row, &locFlowers.col); break;
+				case 4: sscanf(msg, "%*s %*d %d %d", &locTeleporter.row, &locTeleporter.col); break;
 			}
 		}
-		else if (!strcmp(tag, "COWS"))
-		{
-			sscanf(msg, "%*s %u", &NUMCOWS);
-			for (i = 0; i < NUMCOWS; ++i)
-			{
-				unsigned int ii, value;
-				cc = recv(msg);
-				sscanf(msg, "%*s %u %u", &ii, &value);
-				MILKVALUES[ii] = value;
-			}
-		}
-		else if (!strcmp(tag, "ROUNDS"));
-			sscanf(msg, "%*s %u", &NUMROUNDS);
 	}
 
-	copyself(); game_setup(players, NUMPLAYERS);
+	// cow = 0
+	players[0].id = 0;
+	players[0].count = 1;
+	players[0].units[0].id = 0;
+	players[0].units[0].row = BOARDSIZE - 1;
+	players[0].units[0].col = BOARDSIZE - 1;
+
+	// farmer = 1
+	players[1].id = 1;
+	players[1].count = 1;
+	players[1].units[0].id = 0;
+	players[1].units[0].row = 0;
+	players[1].units[0].col = 0;
+
+	copyself(); game_setup(players);
 
 	while ((cc = recv(msg)))
 	{
@@ -127,31 +129,29 @@ int main(int argc, char **argv)
 		{
 			unsigned int rnum;
 			sscanf(msg, "%*s %u", &rnum);
-			
-			while ((cc = recv(msg)))
-			{
-				sscanf(msg, "%s", tag);
-				
-				if (!strcmp(tag, "GO")) break;
-				else if (!strcmp(tag, "PLAYER"))
-				{
-					unsigned int loc, milk;
-					sscanf(msg, "%*s %u %u %u", &i, &loc, &milk);
-					players[i].loc = loc;
-					players[i].milk = milk;
-				}
-				else EXPECTED(tag, "PLAYER/GO");
-			}
 
 			copyself();
-			int k = player_turn(rnum, players, NUMPLAYERS);
-			if (k < 0 || k >= NUMCOWS) goto quit;
+			turn_start(rnum, players);
+		}
+		else if (!strcmp(tag, "UPDATE"))
+		{
+			unsigned int u, x, row, col;
+			sscanf(msg, "%*s %u %u %u %u", &u, &x, &row, &col);
+
+			players[u].units[x].row = row;
+			players[u].units[x].col = col;
+		}
+		else if (!strcmp(tag, "MOVE"))
+		{
+			unsigned int x, row, col;
+			sscanf(msg, "%*s %u %u %u", &x, &row, &col);
+			copyself(); player_turn(SELF.units + x, players);
 			
-			sprintf(msg, "MOVE %d", k);
+			sprintf(msg, "%d %d", SELF.units[x].row, SELF.units[x].col);
 			send(msg);
 		}
 		// got an unexpected message...
-		else EXPECTED(tag, "ROUND/ENDGAME");
+		else EXPECTED(tag, "ROUND/ENDGAME/MOVE/UPDATE");
 	}
 
 	quit: game_end();

@@ -1,13 +1,4 @@
-// FORMAT FOR DRIVER FILE
-/*
-   <NUMCOWS> <NUMROUNDS>
-   <MILKVALUES...>
-
-   <NUMAGENTS> 
-   <agentexec>
- */
-
-#define DEBUG 0
+#define DEBUG 1
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -46,22 +37,30 @@
   _a > _b ? _a : _b; })
 
 #define min(a,b) \
-({ __typeof__ (a) _a = (a); \
-__typeof__ (b) _b = (b); \
-_a < _b ? _a : _b; })
+  ({ __typeof__ (a) _a = (a); \
+  __typeof__ (b) _b = (b); \
+  _a < _b ? _a : _b; })
 
-struct agent_t agents[MAXAGENTS];
-static unsigned int NUMAGENTS = 0;
+#define randf() ((double)rand()/(double)RAND_MAX)
+
+struct agent_t agents[NUMAGENTS];
+
+struct agent_t* agentf;
+struct agent_t* agentc;
+
+unsigned int loc_decoy = -1;
+unsigned int loc_cloak = -1;
+unsigned int loc_telep = -1;
+unsigned int loc_flwrs = -1;
+
+unsigned short cow_has_tele = 0;
+unsigned int cowmoves = 0;
 
 // file pointer to data for setting up the game
 FILE* gamedata = NULL;
 
-// round information
-unsigned int NUMROUNDS = 0;
-
-// cow information
-unsigned int NUMCOWS = 0;
-unsigned int MILKVALUES[MAXCOWS];
+double P = 1.0; // probability of detection
+unsigned int T = 100; // rounds until new farmer
 
 // setup a child and get its file descriptors
 void setup_agent(int, struct agent_t*, char*);
@@ -120,26 +119,23 @@ void socket_setup()
 	listen(sockfd, 8);
 }
 
-void setup_game()
+void setup_game(int argc, char** argv)
 {
 	unsigned int i; char msg[MSG_BFR_SZ];
-	fgets(msg, MSG_BFR_SZ, gamedata);
 
-	// setup all bots provided
-	for (i = 0; i < NUMAGENTS; ++i)
-	{
-		// get the command for this bot
-		fgets(msg, MSG_BFR_SZ, gamedata);
+	P = atof(argv[1]);
+	T = atoi(argv[2]);
 
-		// remove newline for command
-		char *p = strchr(msg, '\n');
-		if (p) *p = 0;
-		
-		// setup the agent using this command
-		for (p = msg; *p && isspace(*p); ++p);
-		setup_agent(i, &agents[i], p);
-	}
+	// setup the agent using this command
+	setup_agent(0, &agents[0], argv[3]);
+	setup_agent(1, &agents[1], argv[4]);
 
+	agentc = &agents[0];
+	agentf = &agents[1];
+
+	agentc->count = 1;
+	agentc->units[0] = (BOARDSIZE * BOARDSIZE) - 1;
+	
 	for (i = 0; i < NUMAGENTS; ++i)
 	{
 		// tell the bot its id, it should respond with its name
@@ -150,62 +146,155 @@ void setup_game()
 		agents[i].name[255] = 0;
 	}
 
-	sprintf(msg, "PLAYERS %u", NUMAGENTS);
+	sprintf(msg, "P %lf", P);
 	tell_all(msg, -1);
 
-	sprintf(msg, "COWS %u", NUMCOWS);
+	sprintf(msg, "T %u", T);
 	tell_all(msg, -1);
 
-	for (i = 0; i < NUMCOWS; ++i)
-	{
-		sprintf(msg, "COW %d %d", i, MILKVALUES[i]);
-		tell_all(msg, -1);
-	}
+	loc_cloak = (rand() % (BOARDSIZE*BOARDSIZE - 2)) + 1;
+	loc_decoy = (rand() % (BOARDSIZE*BOARDSIZE - 2)) + 1;
+	loc_flwrs = 14 * BOARDSIZE + 14;
+	loc_telep = (rand() % (BOARDSIZE*BOARDSIZE - 2)) + 1;
 
-	sprintf(msg, "ROUNDS %u", NUMROUNDS);
+	#define POS2COORDS(x) ((x) / BOARDSIZE), ((x) % BOARDSIZE)
+	
+	sprintf(msg, "POS 1 %d %d", POS2COORDS(loc_cloak));
+	tell_all(msg, -1);
+	
+	sprintf(msg, "POS 2 %d %d", POS2COORDS(loc_decoy));
+	tell_all(msg, -1);
+	
+	sprintf(msg, "POS 3 %d %d", POS2COORDS(loc_flwrs));
+	tell_all(msg, -1);
+	
+	sprintf(msg, "POS 4 %d %d", POS2COORDS(loc_telep));
 	tell_all(msg, -1);
 }
 
 // let's milk some cows
-void play_game()
+int play_game()
 {
 	char msg[MSG_BFR_SZ];
 	struct agent_t *a;
-	unsigned int i, rnum;
+	unsigned int i, j, x, rnum;
 
-	unsigned short cowcount[MAXCOWS];
-	for (rnum = 0; rnum < NUMROUNDS; ++rnum)
+	for (rnum = 0;; ++rnum)
 	{
-		// announce all the round information
-		sprintf(msg, "ROUND %u", rnum);
-		tell_all(msg, -1);
-
-		for (i = 0, a = agents; i < NUMAGENTS; ++a, ++i)
+		++cowmoves;
+		for (x = 0; x < agentf->count; ++x)
 		{
-			if (a->status != RUNNING) a->loc = -1;
-			sprintf(msg, "PLAYER %u %u %u", i, a->loc, a->milk);
-			tell_all(msg, -1);
+			if (agentf->units[x] == agentc->units[0])
+				goto gameover;
+
+			// if a farmer touches the decoy cow, it is removed
+			if (agentc->count > 1 && agentf->units[x] == agentc->units[1])
+				agentc->count = 1;
 		}
 
-		tell_all("GO", -1);
-
-		for (i = 0; i < NUMCOWS; ++i) cowcount[i] = 0;
-		for (i = 0, a = agents; i < NUMAGENTS; ++a, ++i)
+		int newfarmer = (0 == rnum % T);
+		if (newfarmer && agentf->count < MAXFARMERS)
 		{
-			listen_bot_timeout(msg, i, a->timeout);
-			if (a->status != RUNNING) continue;
+			agentf->units[agentf->count] = 0;
+			agentf->count++;
 
-			sscanf(msg, "%*s %u", &a->loc);
-			a->loc %= NUMCOWS;
-			++cowcount[a->loc];
 		}
 
 		for (i = 0, a = agents; i < NUMAGENTS; ++a, ++i)
-			if (a->status != ERROR) a->milk += MILKVALUES[a->loc] / cowcount[a->loc];
-		update_bcb_vis(NUMAGENTS, agents, rnum);
+		{
+			// announce all the round information
+			sprintf(msg, "ROUND %u", rnum);
+			tell_bot(msg, i);
+
+			for (x = 0; x < a->count; ++x)
+			{
+				unsigned int baseavail = 1;
+				unsigned int *availmoves = &baseavail;
+
+				int iscow = a == agentc && x == 0;
+				if (iscow) availmoves = &cowmoves;
+
+				for (; *availmoves > 0; --*availmoves)
+				{
+					update_bcb_vis(NUMAGENTS, agents, rnum);
+					a->mooed[x] = 0;
+
+					unsigned int row, col, loc = a->units[x];
+					sprintf(msg, "MOVE %d %d %d", x, loc / BOARDSIZE, loc % BOARDSIZE);
+					tell_bot(msg, i);
+
+					listen_bot_timeout(msg, i, a->timeout);
+					if (a->status != RUNNING) return -1;
+
+					sscanf(msg, "%d %d", &row, &col);
+
+					if (row < 0) row = 0;
+					if (row >= BOARDSIZE) row = BOARDSIZE - 1;
+
+					if (col < 0) col = 0;
+					if (col >= BOARDSIZE) col = BOARDSIZE - 1;
+
+					int distrow = abs(loc / BOARDSIZE - row);
+					int distcol = abs(loc % BOARDSIZE - col);
+					int nomove = distrow == 0 && distcol == 0;
+
+					int cantele = a == agentc && cow_has_tele;
+					if ((distrow > 1 || distcol > 1) && cantele) cow_has_tele = 0;
+
+					if (abs(loc / BOARDSIZE - row) > 1 && !cantele) row = loc / BOARDSIZE;
+					if (abs(loc % BOARDSIZE - col) > 1 && !cantele) col = loc % BOARDSIZE;
+
+					a->units[x] = row * BOARDSIZE + col;
+					sprintf(msg, "UPDATE %d %d %d %d", i, x, row, col);
+
+					if (iscow && a->units[x] == loc_cloak) 
+					{ loc_cloak = -1; P *= 0.5; }
+
+					if (iscow && a->units[x] == loc_decoy)
+					{
+						loc_decoy = -1;
+
+						agentc->units[agentc->count] = agentc->units[0];
+						agentc->count++;
+					}
+
+					if (iscow && a->units[x] == loc_flwrs)
+					{
+						loc_flwrs = -1;
+
+						for (j = 0; j < agentf->count; ++j)
+						{
+							if (randf() < 0.5)
+							{
+								int sz = sizeof(agentf->units[0]) * (agentf->count - j - 1);
+								memmove(agentf->units + j, agentf->units + j + 1, sz);
+								--agentf->count;
+							}
+
+							sprintf(msg, "UPDATE 1 %d %d %d", j, agentf->units[j] / BOARDSIZE, agentf->units[j] % BOARDSIZE);
+							tell_all(msg, -1);
+						}
+					}
+
+					if (iscow && a->units[x] == loc_telep)
+					{ loc_telep = -1; cow_has_tele = 1; }
+
+					// only tell everyone the cow's location if it's a "moo" phase
+					int moo = (randf() < P && !nomove) || newfarmer;
+					a->mooed[x] = moo && a == agentc;
+
+					tell_all(msg, (a == agentf || moo) ? -1 : 0); // COW = 0
+					
+					// no more moves
+					if (nomove) break;
+				}
+			}
+		}
 	}
 
+gameover:
 	tell_all("ENDGAME", -1);
+	return rnum;
 }
 
 void sighandler(int signum)
@@ -221,8 +310,6 @@ int main(int argc, char** argv)
 	setbuf(stdout, NULL);
 	setbuf(stderr, NULL);
 
-	unsigned int i;
-
 	signal(SIGPIPE, sighandler);
 	signal(SIGTERM, sighandler);
 	
@@ -230,36 +317,21 @@ int main(int argc, char** argv)
 	gettimeofday(&tv, NULL);
 	srand(tv.tv_usec);
 
-	if (argc < 2)
+	if (argc < 5)
 	{
-		fprintf(stderr, "USAGE: %s <datafile>\n", argv[0]);
+		fprintf(stderr, "USAGE: %s <P> <T> <cow> <farmer>\n", argv[0]);
 		exit(0);
 	}
-	gamedata = fopen(argv[1], "r");
 
-	fscanf(gamedata, "%u %u", &NUMCOWS, &NUMROUNDS);
-	for (i = 0; i < NUMCOWS; ++i)
-		fscanf(gamedata, "%u", &MILKVALUES[i]);
-	fscanf(gamedata, "%u", &NUMAGENTS); 
-
-	setup_game();
-	fclose(gamedata);
-
+	setup_game(argc, argv);
 	if (setup_bcb_vis(NUMAGENTS, agents, &argc, &argv))
 	{
 		tell_all("READY", -1);
-		play_game();
+		int rounds = play_game();
 		close_bcb_vis();
 
-		int maxmilk = 0;
-		struct agent_t *a;
-		for (i = 0, a = agents; i < NUMAGENTS; ++i, ++a)
-			if (a->milk > maxmilk && a->status == RUNNING)
-				maxmilk = a->milk;
-
-		for (i = 0, a = agents; i < NUMAGENTS; ++i, ++a)
-			if (a->milk == maxmilk && a->status == RUNNING)
-				printf("Player #%u (%s) wins!\n", i, a->name);
+		fprintf(stdout, "%d\n", rounds);
+		fprintf(stderr, "Farmers caught the cow in %d rounds.\n", rounds);
 	}
 
 	cleanup_bots();

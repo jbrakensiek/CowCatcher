@@ -6,14 +6,23 @@
 #define RUNNING 0
 #define ERROR -1
 
-#define MAXAGENTS 16
-#define MAXCOWS 100
+#define MAXAGENTS 2
+#define NUMAGENTS 2 // FIXME only for 2014
+
+#define MAXFARMERS 30
+#define BOARDSIZE 30
+
+extern unsigned int loc_decoy;
+extern unsigned int loc_cloak;
+extern unsigned int loc_telep;
+extern unsigned int loc_flwrs;
 
 struct agent_t
 {
 	char name[256];       // bot name
-	unsigned int milk;   // how much milk does this player have?
-	unsigned int loc;     // where was this agent last seen?
+	unsigned int units[MAXFARMERS];
+	unsigned int mooed[MAXFARMERS];
+	unsigned int count;
 
 // META:
 	int status;           // bot's current status

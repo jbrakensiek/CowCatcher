@@ -1,40 +1,40 @@
-Pandemoonium
-============
+Cow Catcher
+===========
 
-Pandemoonium! USACO 2013
+Cow Catcher! USACO 2013
 
 ## Have questions?
 
-~~Try the [FAQ/Wiki](http://github.com/usaco/Pandemoonium/wiki).~~
+~~Try the [FAQ/Wiki](http://github.com/usaco/CowCatcher/wiki).~~
 
 ## Need updates?
 
-If you need to update your local copy, navigate to `Pandemoonium/` and try:
+If you need to update your local copy, navigate to `CowCatcher/` and try:
 
 ```bash
 git pull origin master
 ```
 
-## What is Pandemoonium?
+## What is Cow Catcher?
 
-You take the role of a farmer, competing against other farmers, trying to get as much milk as possible in one day. A day is subdivided into rounds. Each cow can produce a fixed amount of milk per round. In each round, each farmer simultanously chooses a cow to milk. If more than one farmer selects the same cow, they subdivide the milk evenly (rounded down to the next largest integer -- fighting causes spillage!). At the end of the day, the farmer with the most milk is the winner.
+TODO
 
 ## How do I get started?
 
 Begin by cloning a copy of the Git repo:
 
 ```bash
-git clone git://github.com/usaco/Pandemoonium.git
+git clone git://github.com/usaco/CowCatcher.git
 ```
 
 Go to the `base/` directory and compile the driver:
 
 ```bash
-cd Pandemoonium/base
+cd CowCatcher/base
 make
 ```
 
-This will create the Pandemoonium driver.
+This will create the CowCatcher driver.
 
 Next, build the example bots to help with testing:
 
