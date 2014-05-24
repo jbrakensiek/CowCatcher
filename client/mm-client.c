@@ -29,6 +29,11 @@ extern void game_end();
 
 // ########################################################
 
+struct coord_t locFlowers;
+struct coord_t locTeleporter;
+struct coord_t locCloak;
+struct coord_t locDecoy;
+
 double P = 1.0;
 unsigned int T = 100;
 
