@@ -13,10 +13,10 @@ struct coord_t
 	unsigned col;
 };
 
-struct coord_t locFlowers;
-struct coord_t locTeleporter;
-struct coord_t locCloak;
-struct coord_t locDecoy;
+extern struct coord_t locFlowers;
+extern struct coord_t locTeleporter;
+extern struct coord_t locCloak;
+extern struct coord_t locDecoy;
 
 struct player_unit
 {
